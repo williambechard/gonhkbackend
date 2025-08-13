@@ -1,0 +1,22 @@
+mode: set
+nhknewseasybkend/cmd/api/main.go:13.21,15.44 2 1
+nhknewseasybkend/cmd/api/main.go:15.44,17.17 2 1
+nhknewseasybkend/cmd/api/main.go:17.17,19.4 1 1
+nhknewseasybkend/cmd/api/main.go:23.41,28.16 4 1
+nhknewseasybkend/cmd/api/main.go:28.16,30.3 1 0
+nhknewseasybkend/cmd/api/main.go:31.2,32.16 2 1
+nhknewseasybkend/cmd/api/main.go:32.16,34.3 1 0
+nhknewseasybkend/cmd/api/main.go:35.2,35.24 1 1
+nhknewseasybkend/cmd/api/main.go:38.32,40.19 2 1
+nhknewseasybkend/cmd/api/main.go:40.19,42.3 1 1
+nhknewseasybkend/cmd/api/main.go:46.64,52.35 6 1
+nhknewseasybkend/cmd/api/main.go:52.35,55.3 1 0
+nhknewseasybkend/cmd/api/main.go:55.8,57.3 1 1
+nhknewseasybkend/cmd/api/main.go:58.2,58.16 1 1
+nhknewseasybkend/cmd/api/main.go:58.16,60.3 1 1
+nhknewseasybkend/cmd/api/main.go:61.2,62.12 2 1
+nhknewseasybkend/cmd/api/main.go:67.35,72.16 5 1
+nhknewseasybkend/cmd/api/main.go:72.16,74.3 1 1
+nhknewseasybkend/cmd/api/main.go:75.2,75.10 1 0
+nhknewseasybkend/cmd/api/main.go:78.13,80.15 2 0
+nhknewseasybkend/cmd/api/main.go:80.15,82.3 1 0

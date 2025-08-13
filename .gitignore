@@ -1,0 +1,33 @@
+# Go build and dependency files
+/bin/
+/build/
+*.exe
+*.out
+*.test
+*.log
+
+# IDE/editor files
+.vscode/
+.idea/
+*.swp
+
+# Coverage and test artifacts
+coverage*
+*.coverprofile
+util
+
+# Logs
+logs/
+*.log
+
+# Environment and secrets
+.env
+
+# Node/npm artifacts (if any)
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Do not commit .env or any secrets!
