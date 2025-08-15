@@ -1,8 +1,8 @@
 module nhknewseasybkend
 
-go 1.25.0
+go 1.25
 
 require (
-	github.com/joho/godotenv v1.5.1 // indirect
-	github.com/lukehoban/go-outline v0.0.0-20161011150102-e78556874252 // indirect
+	github.com/graphql-go/graphql v0.8.1
+	github.com/joho/godotenv v1.5.1
 )

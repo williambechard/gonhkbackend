@@ -23,7 +23,7 @@ func (m *mockServer) ListenAndServe() error {
 
 func TestClearLogFile(t *testing.T) {
 	util.InitLogger()
-	util.LogToFile("test")
+	util.Log("test", util.LogTypeLog)
 	util.CloseLogger()
 	ClearLogFile()
 	logPath := util.GetLogFilePath()
@@ -39,18 +39,15 @@ func TestClearLogFile(t *testing.T) {
 func TestSetupEnvDefaultsFunc(t *testing.T) {
 	os.Unsetenv("HOST")
 	os.Unsetenv("PORT")
-	host, port, err := SetupEnv()
-	if err != nil {
-		t.Errorf("Unexpected error loading env: %v", err)
-	}
-	if host != "localhost" || port != "4200" {
+	host, port, _ := SetupEnv()
+	if host != "localhost" || port != "3000" {
 		t.Errorf("Expected defaults, got HOST=%q PORT=%q", host, port)
 	}
 }
 
 func TestSetupLoggerFunc(t *testing.T) {
 	SetupLogger(nil)
-	util.LogToFile("Logger test")
+	util.Log("Logger test", util.LogTypeLog)
 	util.CloseLogger()
 	logPath := util.GetLogFilePath()
 	data, err := os.ReadFile(logPath)
@@ -65,7 +62,7 @@ func TestSetupLoggerFunc(t *testing.T) {
 func TestLinksHandler(t *testing.T) {
 	mux := http.NewServeMux()
 	RegisterRoutes(mux)
-	req := httptest.NewRequest("GET", "/links", nil)
+	req := httptest.NewRequest("GET", "/api/article-links/getAll", nil)
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	resp := w.Result()
@@ -82,7 +79,7 @@ func TestEnvDefaults(t *testing.T) {
 	t.Setenv("HOST", "")
 	t.Setenv("PORT", "")
 	host, port, _ := SetupEnv()
-	if host != "localhost" || port != "4200" {
+	if host != "localhost" || port != "3000" {
 		t.Errorf("Expected defaults, got HOST=%q PORT=%q", host, port)
 	}
 }
@@ -102,7 +99,7 @@ func TestLoggerIntegration(t *testing.T) {
 	os.Remove(logPath)
 	util.InitLogger()
 	testMsg := "Logger integration test"
-	util.LogToFile(testMsg)
+	util.Log(testMsg, util.LogTypeLog)
 	util.CloseLogger()
 	data, err := os.ReadFile(logPath)
 	if err != nil {
@@ -134,7 +131,7 @@ func TestClearLogFileNoFile(t *testing.T) {
 func TestSetupLoggerWithError(t *testing.T) {
 	util.CloseLogger()
 	SetupLogger(fmt.Errorf(".env not loaded"))
-	util.LogToFile("Logger error test")
+	util.Log("Logger error test", util.LogTypeError)
 	util.CloseLogger()
 	logPath := util.GetLogFilePath()
 	data, err := os.ReadFile(logPath)

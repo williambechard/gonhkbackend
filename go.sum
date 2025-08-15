@@ -1,4 +1,4 @@
+github.com/graphql-go/graphql v0.8.1 h1:p7/Ou/WpmulocJeEx7wjQy611rtXGQaAcXGqanuMMgc=
+github.com/graphql-go/graphql v0.8.1/go.mod h1:nKiHzRM0qopJEwCITUuIsxk9PlVlwIiiI8pnJEhordQ=
 github.com/joho/godotenv v1.5.1 h1:7eLL/+HRGLY0ldzfGMeQkb7vMd0as4CfYvUVzLqw0N0=
 github.com/joho/godotenv v1.5.1/go.mod h1:f4LDr5Voq0i2e/R5DDNOoa2zzDfwtkZa6DnEwAbqwq4=
-github.com/lukehoban/go-outline v0.0.0-20161011150102-e78556874252 h1:D2VNityLQ1srKF+MSllSGQ4NwMci20llMkvVAmU2aCk=
-github.com/lukehoban/go-outline v0.0.0-20161011150102-e78556874252/go.mod h1:O9bIJ6BRFBmP3AKTW8cqESVbauSmifSrRB/n9zq6x9Q=

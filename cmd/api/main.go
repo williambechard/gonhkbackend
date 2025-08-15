@@ -3,13 +3,14 @@ package main
 import (
 	"fmt"
 	"net/http"
+	server "nhknewseasybkend/internal/graphql"
 	"nhknewseasybkend/internal/util"
 	"os"
 
 	"github.com/joho/godotenv"
 )
 
-// Import RegisterRoutes from links.go
+// RegisterRoutes is defined in routes.go
 
 func ClearLogFile() {
 	logPath := util.GetLogFilePath()
@@ -23,7 +24,7 @@ func ClearLogFile() {
 
 func SetupEnv() (string, string, error) {
 	// Always load .env from project root
-	rootEnvPath := "c:/Users/ury2o/Documents/nhknewseasybkend/.env"
+	rootEnvPath := ".env"
 	err := godotenv.Load(rootEnvPath)
 	host := os.Getenv("HOST")
 	if host == "" {
@@ -31,7 +32,7 @@ func SetupEnv() (string, string, error) {
 	}
 	port := os.Getenv("PORT")
 	if port == "" {
-		port = "4200"
+		port = "3000"
 	}
 	return host, port, err
 }
@@ -39,7 +40,7 @@ func SetupEnv() (string, string, error) {
 func SetupLogger(envErr error) {
 	util.InitLogger()
 	if envErr != nil {
-		util.LogToFile(fmt.Sprintf("Warning: .env file not loaded: %v", envErr))
+		util.Log(fmt.Sprintf("Warning: .env file not loaded: %v", envErr), util.LogTypeWarn)
 	}
 }
 
@@ -53,7 +54,8 @@ func StartServer(host, port string, srv ListenAndServeFunc) error {
 	addr := fmt.Sprintf("%s:%s", host, port)
 	mux := http.NewServeMux()
 	RegisterRoutes(mux)
-	util.LogToFile(fmt.Sprintf("API server running on http://%s/ ...", addr))
+	util.Log(fmt.Sprintf("API server running on http://%s/ ...", addr), util.LogTypeLog)
+	fmt.Printf("API server running on http://%s/api/ ...\n", addr)
 	var err error
 	if srv != nil {
 		err = srv.ListenAndServe()
@@ -61,7 +63,7 @@ func StartServer(host, port string, srv ListenAndServeFunc) error {
 		err = http.ListenAndServe(addr, mux)
 	}
 	if err != nil {
-		util.LogToFile(fmt.Sprintf("Server error: %v", err))
+		util.Log(fmt.Sprintf("Server error: %v", err), util.LogTypeError)
 	}
 	util.CloseLogger()
 	return err
@@ -80,7 +82,23 @@ func Run(srv ListenAndServeFunc) int {
 	return 0
 }
 
+func printEnvMasked(keys []string) {
+	for _, key := range keys {
+		val := os.Getenv(key)
+		masked := "XXXXXXX"
+		if val == "" {
+			masked = "(not set)"
+		}
+		fmt.Printf("%s: %s\n", key, masked)
+	}
+}
+
 func main() {
+	// Load .env at the very start so all packages get env vars
+	_ = godotenv.Load(".env")
+	printEnvMasked([]string{"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"})
+	// links.InitSupabase() removed; now handled in graphql/server.go
+	server.InitSupabase()
 	code := Run(nil)
 	if code != 0 {
 		fmt.Println("Server failed to start. Check logs/log.txt for details. Is port 4200 already in use?")
