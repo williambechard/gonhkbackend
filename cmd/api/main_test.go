@@ -2,10 +2,12 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"nhknewseasybkend/internal/util"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -22,11 +24,12 @@ func (m *mockServer) ListenAndServe() error {
 }
 
 func TestClearLogFile(t *testing.T) {
+	logPath := util.GetLogFilePath()
+	_ = os.Remove(logPath)
 	util.InitLogger()
 	util.Log("test", util.LogTypeLog)
 	util.CloseLogger()
 	ClearLogFile()
-	logPath := util.GetLogFilePath()
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("Failed to read log file: %v", err)
@@ -46,10 +49,11 @@ func TestSetupEnvDefaultsFunc(t *testing.T) {
 }
 
 func TestSetupLoggerFunc(t *testing.T) {
+	logPath := util.GetLogFilePath()
+	_ = os.Remove(logPath)
 	SetupLogger(nil)
 	util.Log("Logger test", util.LogTypeLog)
 	util.CloseLogger()
-	logPath := util.GetLogFilePath()
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("Failed to read log file: %v", err)
@@ -60,9 +64,15 @@ func TestSetupLoggerFunc(t *testing.T) {
 }
 
 func TestLinksHandler(t *testing.T) {
+	// Test GraphQL endpoint with a simple query
 	mux := http.NewServeMux()
 	RegisterRoutes(mux)
-	req := httptest.NewRequest("GET", "/api/article-links/getAll", nil)
+	query := `{"query": "{ hello }"}`
+	req := httptest.NewRequest("POST", "/graphql",
+		// Use a string reader for the body
+		http.NoBody)
+	req.Body = io.NopCloser(strings.NewReader(query))
+	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
 	resp := w.Result()
@@ -70,8 +80,8 @@ func TestLinksHandler(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 	body := w.Body.String()
-	if body != "Links endpoint reached!\n" {
-		t.Errorf("Unexpected body: %q", body)
+	if !strings.Contains(body, "world") {
+		t.Errorf("Expected GraphQL response to contain 'world', got %q", body)
 	}
 }
 
@@ -94,9 +104,8 @@ func TestEnvOverride(t *testing.T) {
 	}
 }
 func TestLoggerIntegration(t *testing.T) {
-	// Clear log file
 	logPath := util.GetLogFilePath()
-	os.Remove(logPath)
+	_ = os.Remove(logPath)
 	util.InitLogger()
 	testMsg := "Logger integration test"
 	util.Log(testMsg, util.LogTypeLog)
@@ -129,11 +138,12 @@ func TestClearLogFileNoFile(t *testing.T) {
 }
 
 func TestSetupLoggerWithError(t *testing.T) {
+	logPath := util.GetLogFilePath()
+	_ = os.Remove(logPath)
 	util.CloseLogger()
 	SetupLogger(fmt.Errorf(".env not loaded"))
 	util.Log("Logger error test", util.LogTypeError)
 	util.CloseLogger()
-	logPath := util.GetLogFilePath()
 	data, err := os.ReadFile(logPath)
 	if err != nil {
 		t.Fatalf("Failed to read log file: %v", err)

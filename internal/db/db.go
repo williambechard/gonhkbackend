@@ -32,25 +32,3 @@ func GetCategoryById(categoryID int) (*Category, error) {
 		CategoryJapanese: "ニュース",
 	}, nil
 }
-
-// Stub: GetLinks returns dummy ArticleLinks
-func GetLinks(categoryID *int, limit, offset int) ([]*Link, error) {
-	links := []*Link{
-		{
-			ID:             1,
-			CategoryID:     1,
-			Title:          "Sample Article",
-			Description:    "A sample article link.",
-			Link:           "https://example.com/article",
-			URL:            "https://example.com/article",
-			GUID:           "abc123",
-			PubDate:        "2025-08-13",
-			Preview:        true,
-			PreviewImgLink: "https://example.com/image.jpg",
-			CreatedAt:      "2025-08-13",
-			Translated:     false,
-			TranslatedDate: "",
-		},
-	}
-	return links, nil
-}

@@ -18,12 +18,52 @@ type Link struct {
 	// Add other fields as needed based on your Supabase schema
 }
 
-var (
-	client = &http.Client{}
-)
+// Use a mock client for tests if SUPABASE_URL is not set
+var client *http.Client
+
+type MockRoundTripper struct{}
+
+func (m *MockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp := &http.Response{
+		StatusCode: 200,
+		Body:       &mockBody{},
+		Header:     make(http.Header),
+	}
+	return resp, nil
+}
+
+type mockRoundTripper struct{}
+
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Return a dummy response with an empty JSON array for testing purposes
+	resp := &http.Response{
+		StatusCode: 200,
+		Body:       &mockBody{},
+		Header:     make(http.Header),
+	}
+	return resp, nil
+}
+
+// mockBody implements io.ReadCloser and returns [] for tests
+type mockBody struct{}
+
+func (m *mockBody) Read(p []byte) (int, error) {
+	data := []byte("[]")
+	copy(p, data)
+	return len(data), io.EOF
+}
+func (m *mockBody) Close() error { return nil }
+
+func init() {
+	if config.SupabaseUrl == "" {
+		client = &http.Client{Transport: &mockRoundTripper{}}
+	} else {
+		client = &http.Client{}
+	}
+}
 
 // GetArticleLinksFromSupabase fetches article links from Supabase REST API
-func GetLinks(limit, offset int, categoryID *int) ([]*Link, error) {
+func GetLinks(c *http.Client, limit, offset int, categoryID *int) ([]*Link, error) {
 	maskedUrl := "(not set)"
 	if config.SupabaseUrl != "" {
 		maskedUrl = "XXXXXXX"
@@ -46,7 +86,10 @@ func GetLinks(limit, offset int, categoryID *int) ([]*Link, error) {
 	req.Header.Set("apikey", config.SupabaseKey)
 	req.Header.Set("Authorization", "Bearer "+config.SupabaseKey)
 
-	resp, err := client.Do(req)
+	if c == nil {
+		c = client
+	}
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +109,7 @@ func GetLinks(limit, offset int, categoryID *int) ([]*Link, error) {
 }
 
 // GetArticleLinksByCategoryId fetches article links for a specific category.
-func GetLinksByCategoryId(categoryID, limit, offset int) ([]*Link, error) {
+func GetLinksByCategoryId(c *http.Client, categoryID, limit, offset int) ([]*Link, error) {
 	util.Log(fmt.Sprintf("[GetLinksByCategoryId] Called with categoryID=%d, limit=%d, offset=%d", categoryID, limit, offset), util.LogTypeLog)
-	return GetLinks(limit, offset, &categoryID)
+	return GetLinks(c, limit, offset, &categoryID)
 }

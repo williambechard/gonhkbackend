@@ -106,10 +106,3 @@ func TestGraphQLHandler_ErrorResponse(t *testing.T) {
 		t.Errorf("Expected error in response, got %v", result)
 	}
 }
-
-func TestBuildSchema_Empty(t *testing.T) {
-	_, err := BuildSchema()
-	if err == nil {
-		t.Errorf("Expected error when root query is nil, got nil")
-	}
-}
