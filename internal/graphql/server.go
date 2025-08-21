@@ -1,15 +1,14 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
-	"nhknewseasybkend/internal/config"
-	"nhknewseasybkend/internal/graphql/queries"
-	"nhknewseasybkend/internal/util"
 	"os"
 
-	"github.com/graphql-go/graphql"
+	"nhknewseasybkend/internal/util"
 )
 
 var (
@@ -17,108 +16,137 @@ var (
 	SupabaseKey string
 )
 
-func InitSupabase() {
-	SupabaseUrl = os.Getenv("SUPABASE_URL")
-	SupabaseKey = os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+type SupabaseConfig struct {
+	Url string
+	Key string
+}
+
+func InitSupabase() SupabaseConfig {
+	url := os.Getenv("SUPABASE_URL")
+	key := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
 	maskedUrl := "(not set)"
-	if SupabaseUrl != "" {
+	if url != "" {
 		maskedUrl = "XXXXXXX"
 	}
 	maskedKey := "(not set)"
-	if SupabaseKey != "" {
+	if key != "" {
 		maskedKey = "XXXXXXX"
 	}
-	util.Log(fmt.Sprintf("[InitSupabase] SUPABASE_URL: %s, SUPABASE_SERVICE_ROLE_KEY: %s", maskedUrl, maskedKey), util.LogTypeLog)
+	fmt.Printf("[InitSupabase] SUPABASE_URL: %s, SUPABASE_SERVICE_ROLE_KEY: %s\n", maskedUrl, maskedKey)
+	return SupabaseConfig{Url: url, Key: key}
 }
 
-var rootQuery = graphql.NewObject(graphql.ObjectConfig{
-	Name: "Query",
-	Fields: graphql.Fields{
-		"hello": &graphql.Field{
-			Type: graphql.String,
-			Resolve: func(p graphql.ResolveParams) (interface{}, error) {
-				return "world", nil
-			},
-		},
-		"links": queries.LinksField,
-		// Add more queries here as you modularize
-	},
-})
-
-// GraphQLHandler handles GraphQL HTTP requests
-func GraphQLHandler(schema *graphql.Schema) http.HandlerFunc {
+// Minimal GraphQL proxy handler
+func GraphQLHandler(cfg SupabaseConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var params struct {
-			Query         string                 `json:"query"`
-			OperationName string                 `json:"operationName"`
-			Variables     map[string]interface{} `json:"variables"`
-		}
+		// Set CORS headers for all requests (must be first)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, apikey")
 
-		// Log the request method and payload
-		var payload map[string]interface{}
-		decoder := json.NewDecoder(r.Body)
-		_ = decoder.Decode(&payload)
-		logMsg := fmt.Sprintf("[GraphQLHandler] %s request. Payload: %v", r.Method, payload)
-		util.Log(logMsg, util.LogTypeLog)
-
-		// Decode again into params (if needed, buffer body first)
-		// For now, just decode into params from payload if possible
-		// But normally, decode into params from the original body
-		// Since body is already read, we can't decode again unless we buffer it
-		// So, for correct behavior, decode into params from payload if possible
-		// If not, you may need to refactor to buffer body before decoding
-
-		// For now, just check if payload has "query" etc
-		params.Query = ""
-		if q, ok := payload["query"].(string); ok {
-			params.Query = q
-		}
-		params.OperationName = ""
-		if op, ok := payload["operationName"].(string); ok {
-			params.OperationName = op
-		}
-		if vars, ok := payload["variables"].(map[string]interface{}); ok {
-			params.Variables = vars
-		} else {
-			params.Variables = make(map[string]interface{})
-		}
-
-		if params.Query == "" {
-			w.WriteHeader(http.StatusBadRequest)
-			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid request body"})
+		if r.Method == http.MethodOptions {
+			util.Log(fmt.Sprintf("[GraphQLHandler] OPTIONS request from %s. Headers: %v", r.RemoteAddr, r.Header), util.LogTypeLog)
+			w.WriteHeader(http.StatusNoContent)
 			return
 		}
 
-		result := graphql.Do(graphql.Params{
-			Schema:         *schema,
-			RequestString:  params.Query,
-			VariableValues: params.Variables,
-			OperationName:  params.OperationName,
-			Context:        r.Context(),
-		})
-
-		// Log array length for 'links' query
-		if data, ok := result.Data.(map[string]interface{}); ok {
-			if linksArr, ok := data["links"].([]interface{}); ok {
-				util.Log(fmt.Sprintf("GraphQL query returned %d entries", len(linksArr)), util.LogTypeLog)
+		var payload map[string]interface{}
+		const maxBodySize = 1 << 20 // 1MB
+		limitedReader := io.LimitReader(r.Body, maxBodySize)
+		decoder := json.NewDecoder(limitedReader)
+		if err := decoder.Decode(&payload); err != nil {
+			util.Log(fmt.Sprintf("[GraphQLHandler] Error decoding JSON payload: %v", err), util.LogTypeError)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON payload"})
+			return
+		}
+		var opType string = "query"
+		var opName string
+		var queryStr string
+		if q, ok := payload["query"].(string); ok {
+			queryStr = q
+			trimmed := queryStr
+			if len(trimmed) > 0 {
+				if len(trimmed) >= 7 && (trimmed[:7] == "mutation" || trimmed[:7] == "Mutation") {
+					opType = "mutation"
+					trimmed = trimmed[8:]
+				} else if len(trimmed) >= 5 && (trimmed[:5] == "query" || trimmed[:5] == "Query") {
+					opType = "query"
+					trimmed = trimmed[6:]
+				}
+				for i, c := range trimmed {
+					if c == '(' || c == '{' || c == ' ' {
+						opName = trimmed[:i]
+						break
+					}
+				}
+			}
+		} else if payload["kind"] == "Document" {
+			// AST format
+			if defs, ok := payload["definitions"].([]interface{}); ok && len(defs) > 0 {
+				if def, ok := defs[0].(map[string]interface{}); ok {
+					if t, ok := def["operation"].(string); ok {
+						opType = t
+					}
+					if nameObj, ok := def["name"].(map[string]interface{}); ok {
+						if n, ok := nameObj["value"].(string); ok {
+							opName = n
+						}
+					}
+				}
 			}
 		}
-
-		if len(result.Errors) > 0 {
-			util.Log("GraphQL error: "+result.Errors[0].Message, util.LogTypeError)
-			w.WriteHeader(http.StatusBadRequest)
+		if opName != "" {
+			util.Log(fmt.Sprintf("[GraphQLHandler] %s request from %s. Operation: %s %s", r.Method, r.RemoteAddr, opType, opName), util.LogTypeLog)
+		} else {
+			util.Log(fmt.Sprintf("[GraphQLHandler] %s request from %s. Operation: %s", r.Method, r.RemoteAddr, opType), util.LogTypeLog)
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(result)
-	}
-}
+		// Set CORS headers for all requests
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, apikey")
 
-// BuildSchema parses the GraphQL schema string and returns a graphql.Schema
-func BuildSchema() (*graphql.Schema, error) {
-	config.InitSupabase() // Initialize Supabase credentials once when building schema
-	schema, err := graphql.NewSchema(graphql.SchemaConfig{
-		Query: rootQuery,
-		// Mutation: nil, // Add mutation if needed
-	})
-	return &schema, err
+		if r.Method == http.MethodOptions {
+			util.Log(fmt.Sprintf("[GraphQLHandler] OPTIONS request from %s. Headers: %v", r.RemoteAddr, r.Header), util.LogTypeLog)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
+		// ...existing code...
+
+		supabaseEndpoint := fmt.Sprintf("%s/graphql/v1", cfg.Url)
+		bodyBytes, err := json.Marshal(payload)
+		if err != nil {
+			util.Log(fmt.Sprintf("[GraphQLHandler] Error marshaling payload: %v", err), util.LogTypeError)
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to marshal payload"})
+			return
+		}
+
+		req, err := http.NewRequest("POST", supabaseEndpoint, bytes.NewBuffer(bodyBytes))
+		if err != nil {
+			util.Log(fmt.Sprintf("[GraphQLHandler] Error creating request: %v", err), util.LogTypeError)
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to create request"})
+			return
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("apikey", cfg.Key)
+		req.Header.Set("Authorization", "Bearer "+cfg.Key)
+
+		client := &http.Client{Timeout: 10 * 1e9} // 10 seconds
+		resp, err := client.Do(req)
+		if err != nil {
+			util.Log(fmt.Sprintf("[GraphQLHandler] Error contacting Supabase: %v", err), util.LogTypeError)
+			w.WriteHeader(http.StatusBadGateway)
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "failed to contact Supabase"})
+			return
+		}
+		defer resp.Body.Close()
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(resp.StatusCode)
+		io.Copy(w, resp.Body)
+	}
 }
