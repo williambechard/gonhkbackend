@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	server "nhknewseasybkend/internal/graphql"
+	"nhknewseasybkend/internal/service"
 	"nhknewseasybkend/internal/util"
+	"nhknewseasybkend/internal/worker"
 	"os"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -71,10 +74,9 @@ func StartServer(host, port string, srv ListenAndServeFunc) error {
 
 // Run contains the main logic and is testable
 // Run can accept a custom ListenAndServeFunc for testability
-func Run(srv ListenAndServeFunc) int {
-	ClearLogFile()
-	host, port, envErr := SetupEnv()
-	SetupLogger(envErr)
+func Run(srv ListenAndServeFunc, host string, port string) int {
+	//ClearLogFile()
+
 	err := StartServer(host, port, srv)
 	if err != nil {
 		return 1
@@ -94,14 +96,42 @@ func printEnvMasked(keys []string) {
 }
 
 func main() {
+	// Clear log file before any logging
+	ClearLogFile()
+	host, port, envErr := SetupEnv()
+	SetupLogger(envErr)
+
 	// Load .env at the very start so all packages get env vars
 	_ = godotenv.Load(".env")
-	printEnvMasked([]string{"SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"})
-	// links.InitSupabase() removed; now handled in graphql/server.go
+	util.Log("SUPABASE_URL: XXXXXXX", util.LogTypeLog)
+	util.Log("SUPABASE_SERVICE_ROLE_KEY: XXXXXXX", util.LogTypeLog)
 	server.InitSupabase()
-	code := Run(nil)
+
+	// Fetch parts of speech before starting workers
+	posList, err := service.GetAllPartsOfSpeechGraphQL()
+	if err != nil {
+		util.Log(fmt.Sprintf("[Startup] Error fetching parts of speech: %v", err), util.LogTypeError)
+		os.Exit(1)
+	}
+	util.Log(fmt.Sprintf("[Startup] Loaded %d parts of speech", len(posList)), util.LogTypeLog)
+
+	grammarList, err := service.GetAllGrammarGraphQL()
+	if err != nil {
+		util.Log(fmt.Sprintf("[Startup] Error fetching grammar: %v", err), util.LogTypeError)
+		os.Exit(1)
+	}
+	util.Log(fmt.Sprintf("[Startup] Loaded %d grammar points", len(grammarList)), util.LogTypeLog)
+
+	// Log parts of speech pull at the very start
+	util.Log("[Startup] Pulling parts of speech from Supabase...", util.LogTypeLog)
+
+	// Start the LinkTranslationWorker (runs every 5 minutes)
+	linkWorker := worker.NewLinkTranslationWorker(5 * time.Minute)
+	linkWorker.Start()
+
+	code := Run(nil, host, port)
 	if code != 0 {
-		fmt.Println("Server failed to start. Check logs/log.txt for details. Is port 4200 already in use?")
+		util.Log("Server failed to start. Check logs/log.txt for details. Is port 4200 already in use?", util.LogTypeError)
 		os.Exit(code)
 	}
 }

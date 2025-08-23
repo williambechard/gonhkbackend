@@ -32,7 +32,7 @@ func InitSupabase() SupabaseConfig {
 	if key != "" {
 		maskedKey = "XXXXXXX"
 	}
-	fmt.Printf("[InitSupabase] SUPABASE_URL: %s, SUPABASE_SERVICE_ROLE_KEY: %s\n", maskedUrl, maskedKey)
+	util.Log(fmt.Sprintf("[InitSupabase] SUPABASE_URL: %s, SUPABASE_SERVICE_ROLE_KEY: %s", maskedUrl, maskedKey), util.LogTypeLog)
 	return SupabaseConfig{Url: url, Key: key}
 }
 
@@ -113,8 +113,6 @@ func GraphQLHandler(cfg SupabaseConfig) http.HandlerFunc {
 			return
 		}
 
-		// ...existing code...
-
 		supabaseEndpoint := fmt.Sprintf("%s/graphql/v1", cfg.Url)
 		bodyBytes, err := json.Marshal(payload)
 		if err != nil {
@@ -149,4 +147,40 @@ func GraphQLHandler(cfg SupabaseConfig) http.HandlerFunc {
 		w.WriteHeader(resp.StatusCode)
 		io.Copy(w, resp.Body)
 	}
+}
+
+// CallSupabaseGraphQL sends an internal GraphQL query to Supabase and returns the raw response
+func CallSupabaseGraphQL(query string, variables map[string]interface{}) ([]byte, error) {
+	url := os.Getenv("SUPABASE_URL") + "/graphql/v1"
+	key := os.Getenv("SUPABASE_SERVICE_ROLE_KEY")
+
+	payload := map[string]interface{}{"query": query}
+	if variables != nil {
+		payload["variables"] = variables
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("apikey", key)
+	req.Header.Set("Authorization", "Bearer "+key)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	respBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return respBytes, nil
 }
