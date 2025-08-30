@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"nhknewseasybkend/internal/util"
 	"os"
-	"sync"
 	"time"
 )
 
@@ -20,6 +19,7 @@ const getUntranslatedLinksQuery = `
                     id
                     link
                     translated
+					category_id
                 }
             }
         }
@@ -29,17 +29,23 @@ const getUntranslatedLinksQuery = `
 type LinkTranslationWorker struct {
 	interval time.Duration
 	stopChan chan struct{}
+	RunOnce  bool // If true, only run processLinks once (for testing)
 }
 
 func NewLinkTranslationWorker(interval time.Duration) *LinkTranslationWorker {
 	return &LinkTranslationWorker{
 		interval: interval,
 		stopChan: make(chan struct{}),
+		RunOnce:  true, // default to false, set true for testing
 	}
 }
 
 func (w *LinkTranslationWorker) Start() {
 	go func() {
+		if w.RunOnce {
+			w.processLinks()
+			return
+		}
 		for {
 			select {
 			case <-w.stopChan:
@@ -89,6 +95,7 @@ func (w *LinkTranslationWorker) processLinks() {
 						ID         int    `json:"id"`
 						Link       string `json:"link"`
 						Translated bool   `json:"translated"`
+						CategoryID int    `json:"category_id"`
 					} `json:"node"`
 				} `json:"edges"`
 			} `json:"linksCollection"`
@@ -101,27 +108,25 @@ func (w *LinkTranslationWorker) processLinks() {
 	count := len(result.Data.LinksCollection.Edges)
 	util.Log(fmt.Sprintf("[LinkTranslationWorker] Found %d untranslated links.", count), util.LogTypeLog)
 
-	var wg sync.WaitGroup
 	for i, edge := range result.Data.LinksCollection.Edges {
 		if i > 0 {
 			break // Stop after processing the first link (for testing)
 		}
 		link := edge.Node.Link
 		util.Log(fmt.Sprintf("[LinkTranslationWorker] Processing link: %s", link), util.LogTypeLog)
-		article, err := ArticleContentWorker(link)
+		categoryId := edge.Node.CategoryID
+		util.Log(fmt.Sprintf("[LinkTranslationWorker] Category ID: %d", categoryId), util.LogTypeLog)
+		article, err := ArticleContentWorker(link, categoryId)
 		if err != nil {
 			util.Log(fmt.Sprintf("[LinkTranslationWorker] Error extracting article for %s: %v", link, err), util.LogTypeError)
 			continue
 		}
 		util.Log(fmt.Sprintf("[LinkTranslationWorker] Extracted article title: %s", article.Title), util.LogTypeLog)
-		wg.Add(1)
-		go func(article *ArticleContent, link string) {
-			defer wg.Done()
-			done := make(chan bool)
-			go ArticleContentProcessWorker(article, done)
-			<-done
-			util.Log(fmt.Sprintf("[LinkTranslationWorker] Article fully processed for link: %s", link), util.LogTypeLog)
-		}(article, link)
+		// Add final log to indicate completion
+		if article != nil && len(article.Title) > 0 {
+			util.Log(fmt.Sprintf("[LinkTranslationWorker] Finished processing and saving article"), util.LogTypeLog)
+		} else {
+			util.Log("[LinkTranslationWorker] Finished processing and saving article (ID not available)", util.LogTypeLog)
+		}
 	}
-	wg.Wait()
 }

@@ -68,6 +68,7 @@ func StartServer(host, port string, srv ListenAndServeFunc) error {
 	if err != nil {
 		util.Log(fmt.Sprintf("Server error: %v", err), util.LogTypeError)
 	}
+
 	util.CloseLogger()
 	return err
 }
@@ -115,6 +116,8 @@ func main() {
 	}
 	util.Log(fmt.Sprintf("[Startup] Loaded %d parts of speech", len(posList)), util.LogTypeLog)
 
+	service.InitWords()
+
 	grammarList, err := service.GetAllGrammarGraphQL()
 	if err != nil {
 		util.Log(fmt.Sprintf("[Startup] Error fetching grammar: %v", err), util.LogTypeError)
@@ -127,6 +130,7 @@ func main() {
 
 	// Start the LinkTranslationWorker (runs every 5 minutes)
 	linkWorker := worker.NewLinkTranslationWorker(5 * time.Minute)
+	linkWorker.RunOnce = true // Only run once for testing
 	linkWorker.Start()
 
 	code := Run(nil, host, port)

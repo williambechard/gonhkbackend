@@ -1,35 +1,41 @@
 package worker
 
 import (
+	"nhknewseasybkend/internal/types"
 	"nhknewseasybkend/internal/util"
 	"strings"
 	"sync"
+	"time"
 )
 
 // ArticleSentenceProcessWorker splits block body into sentences and launches translation workers
-func ArticleSentenceProcessWorker(blockTitle, blockBody string) ([]ArticleSentenceResult, error) {
+func ArticleSentenceProcessWorker(blockTitle, blockBody string) ([]types.ArticleSentenceResult, error) {
 	util.Log("[ArticleSentenceProcessWorker] Processing block: Title='"+blockTitle+"'", util.LogTypeLog)
 	sentences := strings.Split(blockBody, "。")
-	results := make([]ArticleSentenceResult, 0, len(sentences))
+	results := make([]types.ArticleSentenceResult, 0, len(sentences))
 	errs := make([]error, 0)
 	var wg sync.WaitGroup
-	resultCh := make(chan ArticleSentenceResult, len(sentences))
+	resultCh := make(chan types.ArticleSentenceResult, len(sentences))
 	errCh := make(chan error, len(sentences))
-	for _, sentence := range sentences {
-		sentence = strings.TrimSpace(sentence)
-		if sentence == "" {
+	sem := make(chan struct{}, 2) // limit to 2 concurrent workers
+	for _, sentenceText := range sentences {
+		sentenceText = strings.TrimSpace(sentenceText)
+		if sentenceText == "" {
 			continue
 		}
 		wg.Add(1)
 		go func(s string) {
-			defer wg.Done()
-			res, err := ArticleSentenceTranslateWorker(s)
+			sem <- struct{}{}                   // acquire semaphore
+			defer func() { <-sem; wg.Done() }() // release semaphore and mark done
+			time.Sleep(1 * time.Second)         // delay before each request
+			sentenceObj := types.Sentence{JP: s}
+			res, err := ArticleSentenceTranslateWorker(sentenceObj)
 			if err != nil {
 				errCh <- err
 			} else {
 				resultCh <- res
 			}
-		}(sentence)
+		}(sentenceText)
 	}
 	wg.Wait()
 	close(resultCh)

@@ -19,19 +19,20 @@ type PartOfSpeech struct {
 var AllPartsOfSpeech []PartOfSpeech
 
 const getPartsOfSpeechQuery = `
-query {
-	parts_of_speechCollection {
-		edges {
-			node {
-				id
-				eng
-				pos
-				furigana
-				abr
-			}
-		}
-  	}
-}`
+  query GetPartsOfSpeech {
+	 parts_of_speechCollection {
+		 edges {
+			 node {
+				 id
+				 eng
+				 pos
+				 furigana
+				 abr
+			 }
+		 }
+	 }
+ }
+`
 
 func GetAllPartsOfSpeechGraphQL() ([]PartOfSpeech, error) {
 	util.Log("[PartsOfSpeechService] Fetching all parts of speech via GraphQL", util.LogTypeLog)
