@@ -39,7 +39,7 @@ func GetAllGrammarGraphQL() ([]Grammar, error) {
 		return nil, err
 	}
 
-	util.Log(fmt.Sprintf("[GrammarService] RAW GraphQL response: %s", string(respBytes)), util.LogTypeLog)
+	util.Log(fmt.Sprintf("[GrammarService] RAW GraphQL response length: %d", len(respBytes)), util.LogTypeLog)
 
 	var result struct {
 		Data struct {
@@ -58,7 +58,7 @@ func GetAllGrammarGraphQL() ([]Grammar, error) {
 
 	if len(result.Errors) > 0 {
 		errBytes, _ := json.Marshal(result.Errors)
-		util.Log(fmt.Sprintf("[GrammarService] GraphQL response contained errors: %s", string(errBytes)), util.LogTypeError)
+		util.Log(fmt.Sprintf("[GrammarService] GraphQL response contained %d errors", len(result.Errors)), util.LogTypeError)
 		return nil, fmt.Errorf("GraphQL errors: %s", string(errBytes))
 	}
 

@@ -14,19 +14,20 @@ type DBWord struct {
 }
 
 type AITokenizedWord struct {
-	ID             string
-	Token          string
-	Furigana       string
-	Lemma          string
-	LemmaFurigana  string
-	Conjugation    string
-	GrammarID      int
-	EnglishMeaning []string
-	PartOfSpeechID int
-	Position       int
-	JLPTLevel      *int
-	FrequencyRank  *int
-	Confidence     float64
+	ID                string
+	Token             string
+	Furigana          string
+	Lemma             string
+	LemmaFurigana     string
+	Conjugation       string
+	GrammarID         int
+	EnglishMeaning    interface{}
+	PartOfSpeechID    int
+	Position          int
+	JLPTLevel         interface{}
+	FrequencyRank     interface{}
+	Confidence        float64
+	FuriganaBracketed string // per-kanji furigana
 }
 
 // ArticleSentenceResult groups a sentence with its tokenized words

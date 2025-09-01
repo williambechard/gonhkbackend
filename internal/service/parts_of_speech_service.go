@@ -43,7 +43,7 @@ func GetAllPartsOfSpeechGraphQL() ([]PartOfSpeech, error) {
 	}
 
 	// Log the raw response for debugging
-	util.Log(fmt.Sprintf("[PartsOfSpeechService] RAW GraphQL response: %s", string(respBytes)), util.LogTypeLog)
+	util.Log(fmt.Sprintf("[PartsOfSpeechService] RAW GraphQL response length: %d", len(respBytes)), util.LogTypeLog)
 
 	var result struct {
 		Data struct {
@@ -62,7 +62,7 @@ func GetAllPartsOfSpeechGraphQL() ([]PartOfSpeech, error) {
 
 	if len(result.Errors) > 0 {
 		errBytes, _ := json.Marshal(result.Errors)
-		util.Log(fmt.Sprintf("[PartsOfSpeechService] GraphQL response contained errors: %s", string(errBytes)), util.LogTypeError)
+		util.Log(fmt.Sprintf("[PartsOfSpeechService] GraphQL response contained %d errors", len(result.Errors)), util.LogTypeError)
 		return nil, fmt.Errorf("GraphQL errors: %s", string(errBytes))
 	}
 

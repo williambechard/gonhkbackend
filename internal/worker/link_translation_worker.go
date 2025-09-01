@@ -113,15 +113,15 @@ func (w *LinkTranslationWorker) processLinks() {
 			break // Stop after processing the first link (for testing)
 		}
 		link := edge.Node.Link
-		util.Log(fmt.Sprintf("[LinkTranslationWorker] Processing link: %s", link), util.LogTypeLog)
+		util.Log(fmt.Sprintf("[LinkTranslationWorker] Processing link (length): %d", len(link)), util.LogTypeLog)
 		categoryId := edge.Node.CategoryID
 		util.Log(fmt.Sprintf("[LinkTranslationWorker] Category ID: %d", categoryId), util.LogTypeLog)
-		article, err := ArticleContentWorker(link, categoryId)
+		article, err := ArticleContentWorker(link, categoryId, false)
 		if err != nil {
 			util.Log(fmt.Sprintf("[LinkTranslationWorker] Error extracting article for %s: %v", link, err), util.LogTypeError)
 			continue
 		}
-		util.Log(fmt.Sprintf("[LinkTranslationWorker] Extracted article title: %s", article.Title), util.LogTypeLog)
+		util.Log(fmt.Sprintf("[LinkTranslationWorker] Extracted article title length: %d", len(article.Title)), util.LogTypeLog)
 		// Add final log to indicate completion
 		if article != nil && len(article.Title) > 0 {
 			util.Log(fmt.Sprintf("[LinkTranslationWorker] Finished processing and saving article"), util.LogTypeLog)

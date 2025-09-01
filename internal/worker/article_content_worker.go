@@ -10,11 +10,48 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/launcher"
 )
+
+// Prevent go mod tidy from removing these packages
+var (
+	_ = goquery.NewDocument
+	_ = rod.New
+	_ = launcher.New
+)
+
+// CompareTokenizationForSentence runs MeCab and AI tokenization, logging both results for comparison
+func CompareTokenizationForSentence(sentence string) {
+	util.Log("[CompareTokenization] Sentence: "+sentence, util.LogTypeLog)
+	// MeCab tokenization
+	mecabWords, mecabErr := MeCabTokenizeWorker(sentence)
+	if mecabErr != nil {
+		util.Log("[CompareTokenization] MeCab ERROR: "+mecabErr.Error(), util.LogTypeError)
+	} else {
+		util.Log("[CompareTokenization] MeCab Results:", util.LogTypeLog)
+		for i, w := range mecabWords {
+			util.Log(fmt.Sprintf("  [%d] Token='%s' Lemma='%s' Conjugation='%s' Furigana='%s'", i, w.Token, w.Lemma, w.Conjugation, w.Furigana), util.LogTypeLog)
+		}
+	}
+
+	/*
+
+		// AI tokenization
+		aiResult, aiErr := TokenizeSentenceWithAI(sentence)
+		if aiErr != nil || !aiResult.Success {
+			util.Log("[CompareTokenization] AI ERROR: "+aiErr.Error(), util.LogTypeError)
+		} else {
+			util.Log("[CompareTokenization] AI Results:", util.LogTypeLog)
+			for i, w := range aiResult.Words {
+				util.Log(fmt.Sprintf("  [%d] Token='%s' Lemma='%s' Conjugation='%s' Furigana='%s'", i, w.Token, w.Lemma, w.Conjugation, w.Furigana), util.LogTypeLog)
+			}
+		}*/
+	util.Log("[CompareTokenization] END OF COMPARISON", util.LogTypeLog)
+}
 
 // Enhanced error logging for early returns in ArticleContentProcessWorker
 func logEarlyReturn(context string, err error) {
@@ -52,78 +89,168 @@ func ExtractUniqueWordsFromArticleContent(article *types.ArticleContent) []types
 	return result
 }
 
+var testContent = &types.ArticleContent{
+	Title: []types.Sentence{
+		{
+			JP:    "アメリカ西部ロサンゼルスでトランプ政権の移民政策に抗議するデモの一部が暴徒化したことを受けて8日、警察が記者会見し「暴力的になっている」として、状況が悪化しているという見方を示しました。現地では緊迫した状況が続いています。",
+			EN:    "",
+			Eval:  "",
+			Words: nil,
+		},
+	},
+	Video:   "",
+	Date:    "2025-08-31T00:00:00Z",
+	Summary: []types.Sentence{},
+	Content: []types.ContentBlock{},
+}
+
 // ArticleContentWorker runs periodically to process article URLs
 // and extract Japanese sentences/content
 // You can expand this to accept a list of URLs or integrate with your DB
-func ArticleContentWorker(url string, categoryId int) (*types.ArticleContent, error) {
-	util.Log(fmt.Sprintf("[ArticleContentWorker] Fetching article from URL: %s", url), util.LogTypeLog)
+func ArticleContentWorker(url string, categoryId int, useTestContent bool) (*types.ArticleContent, error) {
+	util.Log(fmt.Sprintf("[ArticleContentWorker] Fetching article from URL: %s using test content: %v", url, useTestContent), util.LogTypeLog)
 
-	// Check for cached ArticleContent JSON
-	jsonPath := "article_content_cache.json"
-	content := &types.ArticleContent{}
-	if _, err := os.Stat(jsonPath); err == nil {
-		util.Log("[ArticleContentWorker] Found cached article_content_cache.json, loading...", util.LogTypeLog)
-		jsonBytes, err := os.ReadFile(jsonPath)
-		if err != nil {
-			util.Log(fmt.Sprintf("[ArticleContentWorker] Error reading cache file: %v", err), util.LogTypeError)
-			return nil, err
-		}
-		var cachedContent types.ArticleContent
-		if err := json.Unmarshal(jsonBytes, &cachedContent); err != nil {
-			util.Log(fmt.Sprintf("[ArticleContentWorker] Error unmarshaling cache JSON: %v", err), util.LogTypeError)
-			return nil, err
-		}
-		util.Log("[ArticleContentWorker] Loaded ArticleContent from cache, skipping extraction.", util.LogTypeLog)
-		content = &cachedContent
-	} else {
-		util.Log("[ArticleContentWorker] No cached content found, proceeding with extraction.", util.LogTypeLog)
+	var content *types.ArticleContent
+	if true {
+		util.Log("[ArticleContentWorker] TEST MODE: Using testContent as parsed HTML result.", util.LogTypeLog)
+		content = testContent
+		sentence := content.Title[0].JP
 
-		// Launch browser with Rod
-		l := launcher.New().Headless(true).NoSandbox(true).MustLaunch()
-		util.Log(fmt.Sprintf("[ArticleContentWorker] Using browser executable: %s", l), util.LogTypeLog)
-		browser := rod.New().ControlURL(l).MustConnect()
-		defer browser.MustClose()
-
-		page := browser.MustPage(url)
-		util.Log("[ArticleContentWorker] Navigated to URL with Rod.", util.LogTypeLog)
-		// Wait for body to be loaded
-		err := page.WaitLoad()
-		if err != nil {
-			util.Log(fmt.Sprintf("[ArticleContentWorker] ERROR during page.WaitLoad: %v", err), util.LogTypeError)
-			return nil, err
-		}
-		util.Log("[ArticleContentWorker] Page loaded.", util.LogTypeLog)
-		html, err := page.HTML()
-		if err != nil {
-			util.Log(fmt.Sprintf("[ArticleContentWorker] ERROR getting page HTML: %v", err), util.LogTypeError)
-			return nil, err
-		}
-		util.Log(fmt.Sprintf("[ArticleContentWorker] Extracted HTML length: %d", len(html)), util.LogTypeLog)
-
-		// Parse HTML with goquery
-		util.Log("[ArticleContentWorker] Invoking parseArticleHTML...", util.LogTypeLog)
-		content, err := parseArticleHTML(html, url)
-		if err != nil {
-			util.Log(fmt.Sprintf("[ArticleContentWorker] ERROR during HTML parsing: %v", err), util.LogTypeError)
-			return nil, err
-		}
-		util.Log(fmt.Sprintf("[ArticleContentWorker] Article extraction completed successfully for %s", url), util.LogTypeLog)
-
-		// Save ArticleContent struct as JSON for future reuse
-		jsonBytes, err := json.MarshalIndent(content, "", "  ")
-		if err != nil {
-			util.Log(fmt.Sprintf("[ArticleContentWorker] Error marshaling ArticleContent to JSON: %v", err), util.LogTypeError)
+		// Step 1: Manual tokenization (MeCab)
+		util.Log("[ArticleContentWorker] TEST MODE: About to run manual tokenization and write JSON...", util.LogTypeLog)
+		mecabWords, mecabErr := MeCabTokenizeWorker(sentence)
+		if mecabErr != nil {
+			util.Log("[ArticleContentWorker] TEST MODE: MeCab ERROR: "+mecabErr.Error(), util.LogTypeError)
 		} else {
-			jsonPath := "article_content_cache.json" // Save at project root
-			err = os.WriteFile(jsonPath, jsonBytes, 0644)
+			manualResult := types.Sentence{
+				JP:    sentence,
+				Words: mecabWords,
+			}
+			manualContent := &types.ArticleContent{
+				Title: []types.Sentence{manualResult},
+			}
+			util.Log("[ArticleContentWorker] TEST MODE: Marshaling manual tokenized content to JSON...", util.LogTypeLog)
+			jsonBytes, err := json.MarshalIndent(manualContent, "", "  ")
 			if err != nil {
-				util.Log(fmt.Sprintf("[ArticleContentWorker] Error writing ArticleContent JSON to file: %v", err), util.LogTypeError)
+				util.Log("[ArticleContentWorker] TEST MODE: Error marshaling manual tokenized content: "+err.Error(), util.LogTypeError)
 			} else {
-				util.Log(fmt.Sprintf("[ArticleContentWorker] ArticleContent JSON saved to %s", jsonPath), util.LogTypeLog)
+				util.Log("[ArticleContentWorker] TEST MODE: Writing manual tokenized content to testContent_manual_tokenized.json...", util.LogTypeLog)
+				err = os.WriteFile("testContent_manual_tokenized.json", jsonBytes, 0644)
+				if err != nil {
+					util.Log("[ArticleContentWorker] TEST MODE: Error writing manual tokenized content to file: "+err.Error(), util.LogTypeError)
+				} else {
+					util.Log("[ArticleContentWorker] TEST MODE: Manual tokenized content exported to testContent_manual_tokenized.json", util.LogTypeLog)
+				}
 			}
 		}
 
+		// Step 2: AI tokenization
+		util.Log("[ArticleContentWorker] TEST MODE: About to run AI tokenization and write JSON...", util.LogTypeLog)
+		aiResult, aiErr := TokenizeSentenceWithAI(sentence)
+		if aiErr != nil || !aiResult.Success {
+			util.Log("[ArticleContentWorker] TEST MODE: AI ERROR: "+aiErr.Error(), util.LogTypeError)
+		} else {
+			aiContent := &types.ArticleContent{
+				Title: []types.Sentence{{JP: sentence, Words: aiResult.Words}},
+			}
+			util.Log("[ArticleContentWorker] TEST MODE: Marshaling AI tokenized content to JSON...", util.LogTypeLog)
+			jsonBytes, err := json.MarshalIndent(aiContent, "", "  ")
+			if err != nil {
+				util.Log("[ArticleContentWorker] TEST MODE: Error marshaling AI tokenized content: "+err.Error(), util.LogTypeError)
+			} else {
+				util.Log("[ArticleContentWorker] TEST MODE: Writing AI tokenized content to testContent_ai_tokenized.json...", util.LogTypeLog)
+				err = os.WriteFile("testContent_ai_tokenized.json", jsonBytes, 0644)
+				if err != nil {
+					util.Log("[ArticleContentWorker] TEST MODE: Error writing AI tokenized content to file: "+err.Error(), util.LogTypeError)
+				} else {
+					util.Log("[ArticleContentWorker] TEST MODE: AI tokenized content exported to testContent_ai_tokenized.json", util.LogTypeLog)
+				}
+			}
+		}
+		util.Log("[ArticleContentWorker] TEST MODE: Workflow complete. Exiting with os.Exit(0)...", util.LogTypeLog)
 		os.Exit(0)
+	} else {
+		// ...existing code for cache and extraction...
+		jsonPath := "article_content_cache.json"
+		content = &types.ArticleContent{}
+		if _, err := os.Stat(jsonPath); err == nil {
+			util.Log("[ArticleContentWorker] Found cached article_content_cache.json, loading...", util.LogTypeLog)
+			jsonBytes, err := os.ReadFile(jsonPath)
+			if err != nil {
+				util.Log(fmt.Sprintf("[ArticleContentWorker] Error reading cache file: %v", err), util.LogTypeError)
+				return nil, err
+			}
+			var cachedContent types.ArticleContent
+			if err := json.Unmarshal(jsonBytes, &cachedContent); err != nil {
+				util.Log(fmt.Sprintf("[ArticleContentWorker] Error unmarshaling cache JSON: %v", err), util.LogTypeError)
+				return nil, err
+			}
+			util.Log("[ArticleContentWorker] Loaded ArticleContent from cache, skipping extraction.", util.LogTypeLog)
+			content = &cachedContent
+		} else {
+			util.Log("[ArticleContentWorker] No cached content found, proceeding with extraction.", util.LogTypeLog)
+
+			// Launch browser with Rod
+			l := launcher.New().Headless(true).NoSandbox(true).MustLaunch()
+			util.Log(fmt.Sprintf("[ArticleContentWorker] Using browser executable: %s", l), util.LogTypeLog)
+			browser := rod.New().ControlURL(l).MustConnect()
+			defer browser.MustClose()
+
+			page := browser.MustPage(url)
+			util.Log("[ArticleContentWorker] Navigated to URL with Rod.", util.LogTypeLog)
+			// Defensive retry logic for WaitLoad
+			var waitErr error
+			maxWaitRetries := 3
+			for attempt := 0; attempt < maxWaitRetries; attempt++ {
+				waitErr = page.WaitLoad()
+				if waitErr == nil {
+					break
+				}
+				util.Log(fmt.Sprintf("[ArticleContentWorker] ERROR during page.WaitLoad (attempt %d/%d): %v", attempt+1, maxWaitRetries, waitErr), util.LogTypeWarn)
+				time.Sleep(time.Duration(500*(1<<attempt)) * time.Millisecond)
+				// Optionally, refresh page or re-navigate if error persists
+				if attempt < maxWaitRetries-1 {
+					util.Log("[ArticleContentWorker] Retrying navigation to URL due to WaitLoad error...", util.LogTypeWarn)
+					page = browser.MustPage(url)
+				}
+			}
+			if waitErr != nil {
+				util.Log(fmt.Sprintf("[ArticleContentWorker] FINAL ERROR during page.WaitLoad after retries: %v", waitErr), util.LogTypeError)
+				return nil, waitErr
+			}
+			util.Log("[ArticleContentWorker] Page loaded.", util.LogTypeLog)
+			html, err := page.HTML()
+			if err != nil {
+				util.Log(fmt.Sprintf("[ArticleContentWorker] ERROR getting page HTML: %v", err), util.LogTypeError)
+				return nil, err
+			}
+			util.Log(fmt.Sprintf("[ArticleContentWorker] Extracted HTML length: %d", len(html)), util.LogTypeLog)
+
+			// Parse HTML with goquery
+			util.Log("[ArticleContentWorker] Invoking parseArticleHTML...", util.LogTypeLog)
+			content, err = parseArticleHTML(html, url)
+			if err != nil {
+				util.Log(fmt.Sprintf("[ArticleContentWorker] ERROR during HTML parsing: %v", err), util.LogTypeError)
+				return nil, err
+			}
+			util.Log(fmt.Sprintf("[ArticleContentWorker] Article extraction completed successfully for %s", url), util.LogTypeLog)
+
+			// Save ArticleContent struct as JSON for future reuse
+			jsonBytes, err := json.MarshalIndent(content, "", "  ")
+			if err != nil {
+				util.Log(fmt.Sprintf("[ArticleContentWorker] Error marshaling ArticleContent to JSON: %v", err), util.LogTypeError)
+			} else {
+				jsonPath := "article_content_cache.json" // Save at project root
+				err = os.WriteFile(jsonPath, jsonBytes, 0644)
+				if err != nil {
+					util.Log(fmt.Sprintf("[ArticleContentWorker] Error writing ArticleContent JSON to file: %v", err), util.LogTypeError)
+				} else {
+					util.Log(fmt.Sprintf("[ArticleContentWorker] ArticleContent JSON saved to %s", jsonPath), util.LogTypeLog)
+				}
+			}
+
+			//os.Exit(0)
+		}
 	}
 
 	util.Log("[ArticleContentWorker] EXIT: ArticleContent processing completed. Moving to Saving to DB.", util.LogTypeLog)
@@ -132,58 +259,89 @@ func ArticleContentWorker(url string, categoryId int) (*types.ArticleContent, er
 	article, errSaveArticle := service.SaveArticleToDatabase(content, url, categoryId)
 	if errSaveArticle != nil {
 		util.Log(fmt.Sprintf("[ArticleContentWorker] Error saving article to database: %v", errSaveArticle), util.LogTypeError)
+		return nil, errSaveArticle
+	}
+	if article == nil {
+		util.Log("[ArticleContentWorker] ERROR: SaveArticleToDatabase returned nil article. Aborting further processing.", util.LogTypeError)
+		return nil, fmt.Errorf("SaveArticleToDatabase returned nil article")
 	}
 	// Assume SaveArticleToDatabase returns the new article ID (implement as needed)
 	articleID := article.ID // Replace with actual article ID from DB if available
 
-	util.Log(fmt.Sprintf("[ArticleContentWorker] Article saved to database with ID: %d", articleID), util.LogTypeLog)
+	util.Log(fmt.Sprintf("[ArticleContentWorker] Article saved to database with ID: %d", toInt(articleID)), util.LogTypeLog)
 
 	position := 0
 
-	util.Log(fmt.Sprintf("[ArticleContentWorker] Starting to save sentences and words for article ID: %d", articleID), util.LogTypeLog)
+	util.Log(fmt.Sprintf("[ArticleContentWorker] Starting to save sentences and words for article ID: %d", toInt(articleID)), util.LogTypeLog)
+
+	// Stepwise AI pipeline for all sentences
+	processSentences := func(sentences []types.Sentence, part string, img string) []types.Sentence {
+		for i, s := range sentences {
+			util.Log(fmt.Sprintf("[StepwiseAI] Processing %s sentence: %s", part, s.JP), util.LogTypeLog)
+			// Step 1: Translate and explain
+			translated, err := TranslateJapaneseToEnglish(s)
+			if err != nil {
+				util.Log(fmt.Sprintf("[StepwiseAI] ERROR in translation for '%s': %v", s.JP, err), util.LogTypeError)
+				translated.EN = "[MISSING TRANSLATION]"
+				translated.Eval = "[MISSING EVAL]"
+			}
+			// Step 2: Tokenize
+			tokenResult, err := TokenizeSentenceWithAI(translated.JP)
+			if err != nil || !tokenResult.Success {
+				util.Log(fmt.Sprintf("[StepwiseAI] ERROR in tokenization for '%s': %v", translated.JP, err), util.LogTypeError)
+				translated.Words = []types.AITokenizedWord{}
+			} else {
+				translated.Words = tokenResult.Words
+			}
+			// Step 3: Enhance words
+			if len(translated.Words) > 0 {
+				enhanceResults, err := BatchEnhanceTokenizedWords([]types.AITokenizationResult{{Words: translated.Words, Success: true}})
+				if err != nil || len(enhanceResults) == 0 || !enhanceResults[0].Success {
+					util.Log(fmt.Sprintf("[StepwiseAI] ERROR in enhancement for '%s': %v", translated.JP, err), util.LogTypeError)
+				} else {
+					translated.Words = enhanceResults[0].Words
+				}
+			}
+			sentences[i] = translated
+		}
+		return sentences
+	}
 
 	// Title sentences
+	content.Title = processSentences(content.Title, "title", "")
 	for subIdx, s := range content.Title {
-		util.Log(fmt.Sprintf("[ArticleContentWorker] Looping through Title: %s", s.JP), util.LogTypeLog)
 		if err := saveSentenceAndWords(s, "title", position, subIdx, "", toInt(articleID)); err != nil {
 			return nil, err
 		}
-		util.Log(fmt.Sprintf("[ArticleContentWorker] Saved title sentence for article ID: %d, position: %d, subIndex: %d", articleID, position, subIdx), util.LogTypeLog)
 		position++
 	}
 	// Summary sentences
+	content.Summary = processSentences(content.Summary, "summary", "")
 	for subIdx, s := range content.Summary {
-		util.Log(fmt.Sprintf("[ArticleContentWorker] Looping through Summary: %s", s.JP), util.LogTypeLog)
 		if err := saveSentenceAndWords(s, "summary", position, subIdx, "", toInt(articleID)); err != nil {
 			return nil, err
 		}
-		util.Log(fmt.Sprintf("[ArticleContentWorker] Saved summary sentence for article ID: %d, position: %d, subIndex: %d", articleID, position, subIdx), util.LogTypeLog)
 		position++
 	}
 	// Content blocks
-	for _, block := range content.Content {
-
-		// Block title sentences
-		for subIdx, s := range block.Title {
-			util.Log(fmt.Sprintf("[ArticleContentWorker] Looping through Block Title: %s", s.JP), util.LogTypeLog)
+	for bIdx, block := range content.Content {
+		content.Content[bIdx].Title = processSentences(block.Title, "block_title", block.Img)
+		for subIdx, s := range content.Content[bIdx].Title {
 			if err := saveSentenceAndWords(s, "block_title", position, subIdx, block.Img, toInt(articleID)); err != nil {
 				return nil, err
 			}
-			util.Log(fmt.Sprintf("[ArticleContentWorker] Saved block title sentence for article ID: %d, position: %d, subIndex: %d", articleID, position, subIdx), util.LogTypeLog)
 			position++
 		}
-		// Block body sentences
-		for subIdx, s := range block.Body {
-			util.Log(fmt.Sprintf("[ArticleContentWorker] Looping through Block Body: %s", s.JP), util.LogTypeLog)
+		content.Content[bIdx].Body = processSentences(block.Body, "block_body", block.Img)
+		for subIdx, s := range content.Content[bIdx].Body {
 			if err := saveSentenceAndWords(s, "block_body", position, subIdx, block.Img, toInt(articleID)); err != nil {
 				return nil, err
 			}
-			util.Log(fmt.Sprintf("[ArticleContentWorker] Saved block body sentence for article ID: %d, position: %d, subIndex: %d", articleID, position, subIdx), util.LogTypeLog)
 			position++
 		}
 	}
 
-	util.Log(fmt.Sprintf("[ArticleContentWorker] All sentences and words saved for article ID: %d", articleID), util.LogTypeLog)
+	util.Log(fmt.Sprintf("[ArticleContentWorker] All sentences and words saved for article ID: %d", toInt(articleID)), util.LogTypeLog)
 
 	return content, nil
 }
@@ -199,6 +357,20 @@ func saveSentenceAndWords(s types.Sentence, part string, position, subIndex int,
 		allowedPart = "body"
 	}
 
+	// Fallback assignment for missing EN, Eval, Words
+	if s.EN == "" {
+		util.Log(fmt.Sprintf("[saveSentenceAndWords] WARNING: EN missing for JP='%s' (position=%d, subIndex=%d)", s.JP, position, subIndex), util.LogTypeWarn)
+		s.EN = "[MISSING TRANSLATION]"
+	}
+	if s.Eval == "" {
+		util.Log(fmt.Sprintf("[saveSentenceAndWords] WARNING: Eval missing for JP='%s' (position=%d, subIndex=%d)", s.JP, position, subIndex), util.LogTypeWarn)
+		s.Eval = "[MISSING EVAL]"
+	}
+	if s.Words == nil || len(s.Words) == 0 {
+		util.Log(fmt.Sprintf("[saveSentenceAndWords] WARNING: Words missing for JP='%s' (position=%d, subIndex=%d)", s.JP, position, subIndex), util.LogTypeWarn)
+		s.Words = []types.AITokenizedWord{}
+	}
+
 	// Save words and update IDs in sentence.Words
 	savedWords, err := service.SaveWordsToDB(s.Words)
 	if err != nil {
@@ -206,7 +378,7 @@ func saveSentenceAndWords(s types.Sentence, part string, position, subIndex int,
 		return err
 	}
 
-	util.Log(fmt.Sprintf("[saveSentenceAndWords] savedWords: %v", savedWords), util.LogTypeLog)
+	util.Log(fmt.Sprintf("[saveSentenceAndWords] savedWords count: %d", len(savedWords)), util.LogTypeLog)
 
 	for idx, w := range savedWords {
 		util.Log(fmt.Sprintf("[saveSentenceAndWords] savedWords[%d]: token='%s', id='%v'", idx, w.Token, w.ID), util.LogTypeLog)

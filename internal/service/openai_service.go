@@ -43,6 +43,7 @@ func CallOpenAIChatCompletion(model string, temperature float64, messages []Open
 		return "", fmt.Errorf("OPENAI_API_KEY not set")
 	}
 	url := "https://api.openai.com/v1/chat/completions"
+	// Always use temperature 1 for supported models
 	payload := OpenAIChatRequest{
 		Model:       model,
 		Temperature: temperature,

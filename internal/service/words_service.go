@@ -69,7 +69,17 @@ var saveWordsMutation = `
 func InitWords() {
 	util.Log("InitWords: loading all words from DB into LocalWordStore (with pagination)", util.LogTypeLog)
 	var allEdges []struct {
-		Node types.DBWord `json:"node"`
+		Node struct {
+			ID             string      `json:"id"`
+			Lemma          string      `json:"lemma"`
+			LemmaFurigana  string      `json:"lemma_furigana"`
+			Confidence     interface{} `json:"confidence"`
+			AI             bool        `json:"ai"`
+			JLPTLevel      *int        `json:"jlpt_level"`
+			FrequencyRank  *int        `json:"frequency_rank"`
+			PartOfSpeechID int         `json:"part_of_speech_id"`
+			Meanings       []string    `json:"meanings"`
+		} `json:"node"`
 	}
 	var endCursor string
 	hasNextPage := true
@@ -91,7 +101,17 @@ func InitWords() {
 			Data struct {
 				WordsCollection struct {
 					Edges []struct {
-						Node types.DBWord `json:"node"`
+						Node struct {
+							ID             string      `json:"id"`
+							Lemma          string      `json:"lemma"`
+							LemmaFurigana  string      `json:"lemma_furigana"`
+							Confidence     interface{} `json:"confidence"`
+							AI             bool        `json:"ai"`
+							JLPTLevel      *int        `json:"jlpt_level"`
+							FrequencyRank  *int        `json:"frequency_rank"`
+							PartOfSpeechID int         `json:"part_of_speech_id"`
+							Meanings       []string    `json:"meanings"`
+						} `json:"node"`
 					} `json:"edges"`
 					PageInfo struct {
 						HasNextPage bool   `json:"hasNextPage"`
@@ -114,6 +134,14 @@ func InitWords() {
 			util.Log("InitWords: DBWord missing Lemma, skipping", util.LogTypeWarn)
 			continue
 		}
+		// Convert confidence from string to float64
+		var confidence float64
+		switch v := edge.Node.Confidence.(type) {
+		case string:
+			fmt.Sscanf(v, "%f", &confidence)
+		case float64:
+			confidence = v
+		}
 		LocalWordStore[token] = types.AITokenizedWord{
 			Token:          token,
 			Furigana:       edge.Node.LemmaFurigana,
@@ -123,6 +151,7 @@ func InitWords() {
 			JLPTLevel:      edge.Node.JLPTLevel,
 			FrequencyRank:  edge.Node.FrequencyRank,
 			EnglishMeaning: edge.Node.Meanings,
+			Confidence:     confidence,
 		}
 	}
 	util.Log(fmt.Sprintf("InitWords: loaded words: %d", len(allEdges)), util.LogTypeLog)
@@ -137,9 +166,26 @@ func AddWordsToLocalStore(words []types.AITokenizedWord) {
 }
 
 func SaveSentenceWordsToDB(sentence types.Sentence) error {
-	if len(sentence.Words) == 0 || sentence.Words[0].ID == "" {
-		util.Log("SaveSentenceWordsToDB: First word in Words[] does not have a valid ID. Exiting.", util.LogTypeError)
-		panic("SaveSentenceWordsToDB: First word in Words[] does not have a valid ID. Exiting.")
+	// Defensive: Ensure all words have valid IDs before saving
+	if len(sentence.Words) == 0 {
+		util.Log("SaveSentenceWordsToDB: No words to save for sentence.", util.LogTypeWarn)
+		return nil
+	}
+	missingID := false
+	for i, w := range sentence.Words {
+		if w.ID == "" {
+			// Try to set ID from LocalWordStore
+			if local, exists := LocalWordStore[w.Token]; exists && local.ID != "" {
+				sentence.Words[i].ID = local.ID
+			} else {
+				util.Log(fmt.Sprintf("SaveSentenceWordsToDB: Word '%s' missing valid ID and not found in LocalWordStore.", w.Token), util.LogTypeError)
+				missingID = true
+			}
+		}
+	}
+	if missingID {
+		util.Log("SaveSentenceWordsToDB: One or more words missing valid ID. Skipping save.", util.LogTypeError)
+		return nil
 	}
 	util.Log("SaveSentenceWordsToDB: saving sentence_words for sentence: "+sentence.EN, util.LogTypeLog)
 
@@ -191,9 +237,9 @@ func SaveSentenceWordsToDB(sentence types.Sentence) error {
 	var vars = map[string]interface{}{
 		"objects": objects,
 	}
-	util.Log("SaveSentenceWordsToDB: mutation variables: "+fmt.Sprintf("%#v", vars), util.LogTypeLog)
+	util.Log(fmt.Sprintf("SaveSentenceWordsToDB: mutation variables object count: %d", len(objects)), util.LogTypeLog)
 	resp, err := server.CallSupabaseGraphQL(saveSentenceWordsMutation, vars)
-	util.Log("SaveSentenceWordsToDB: raw GraphQL response: "+string(resp), util.LogTypeLog)
+	util.Log(fmt.Sprintf("SaveSentenceWordsToDB: raw GraphQL response length: %d", len(resp)), util.LogTypeLog)
 	if err != nil {
 		util.Log("SaveSentenceWordsToDB: error calling GraphQL: "+err.Error(), util.LogTypeError)
 		return err
@@ -254,12 +300,12 @@ func SaveWordsToDB(words []types.AITokenizedWord) ([]types.AITokenizedWord, erro
 			var objects []map[string]interface{}
 			for _, w := range batch {
 				jlptLevel := 0
-				if w.JLPTLevel != nil {
-					jlptLevel = *w.JLPTLevel
+				if v, ok := w.JLPTLevel.(int); ok {
+					jlptLevel = v
 				}
 				freqRank := 0
-				if w.FrequencyRank != nil {
-					freqRank = *w.FrequencyRank
+				if v, ok := w.FrequencyRank.(int); ok {
+					freqRank = v
 				}
 				objects = append(objects, map[string]interface{}{
 					"lemma":             w.Lemma,
